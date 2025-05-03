@@ -25,6 +25,20 @@ namespace vkBasalt
                   std::vector<VkImage> outputImages,
                   Config*              pConfig);
         ~CasEffect();
+        
+        // Implement Effect interface
+        std::string getName() const override { return "cas"; }
+        bool updateConfig(Config* pConfig) override;
+        std::vector<std::pair<std::string, std::string>> getOptions() const override;
+        bool setOption(const std::string& optionName, const std::string& value) override;
+        
+    private:
+        float sharpness = 0.4f;
+        LogicalDevice* pLogicalDevice;
+        VkFormat format;
+        VkExtent2D imageExtent;
+        std::vector<VkImage> inputImages;
+        std::vector<VkImage> outputImages;
     };
 } // namespace vkBasalt
 

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <mutex>
 
 #include "effect.hpp"
 
@@ -33,6 +34,23 @@ namespace vkBasalt
         VkDeviceMemory                       fakeImageMemory;
 
         void destroy();
+        
+        // Runtime effect management
+        bool addEffect(const std::string& effectName, size_t position = SIZE_MAX);
+        bool removeEffect(size_t index);
+        bool moveEffect(size_t fromIndex, size_t toIndex);
+        bool replaceEffect(size_t index, const std::string& newEffectName);
+        void recreateEffects();
+        void updateEffectConfig(Config* pConfig);
+        
+        // Get effect information
+        std::vector<std::string> getEffectNames() const;
+        Effect* getEffect(size_t index) const;
+        size_t getEffectCount() const { return effects.size(); }
+        
+    private:
+        mutable std::mutex effectMutex;
+        bool needsRecreation = false;
     };
 } // namespace vkBasalt
 

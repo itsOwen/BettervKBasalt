@@ -38,6 +38,9 @@
 #include "effect_lut.hpp"
 #include "effect_reshade.hpp"
 #include "effect_transfer.hpp"
+#include "effect_factory.hpp"
+#include "runtime_config.hpp"
+#include "imgui/imgui_manager.hpp"
 
 #define VKBASALT_NAME "VK_LAYER_VKBASALT_post_processing"
 
@@ -59,6 +62,7 @@ namespace vkBasalt
     std::unordered_map<void*, uint32_t>                                   instanceVersionMap;
     std::unordered_map<void*, std::shared_ptr<LogicalDevice>>             deviceMap;
     std::unordered_map<VkSwapchainKHR, std::shared_ptr<LogicalSwapchain>> swapchainMap;
+    std::unordered_map<VkSwapchainKHR, std::shared_ptr<ImGuiManager>>     imguiManagerMap;
 
     std::mutex globalLock;
 #ifdef _GCC_
@@ -534,6 +538,18 @@ namespace vkBasalt
         {
             Logger::debug(std::to_string(i) + " written commandbuffer " + convertToString(pLogicalSwapchain->commandBuffersNoEffect[i]));
         }
+        
+        // Initialize ImGui for this swapchain
+        std::shared_ptr<ImGuiManager> imguiManager = std::make_shared<ImGuiManager>();
+        if (imguiManager->init(pLogicalDevice, pLogicalSwapchain->format, pLogicalSwapchain->imageCount))
+        {
+            imguiManagerMap[swapchain] = imguiManager;
+            Logger::debug("ImGui initialized for swapchain " + convertToString(swapchain));
+        }
+        else
+        {
+            Logger::err("Failed to initialize ImGui for swapchain " + convertToString(swapchain));
+        }
 
         *pCount = std::min<uint32_t>(*pCount, pLogicalSwapchain->imageCount);
         std::memcpy(pSwapchainImages, pLogicalSwapchain->fakeImages.data(), sizeof(VkImage) * (*pCount));
@@ -545,10 +561,13 @@ namespace vkBasalt
         scoped_lock l(globalLock);
 
         static uint32_t keySymbol = convertToKeySym(pConfig->getOption<std::string>("toggleKey", "Home"));
+        static uint32_t menuKeySymbol = convertToKeySym("Insert"); // Menu toggle key
 
         static bool pressed       = false;
+        static bool menuPressed   = false;
         static bool presentEffect = pConfig->getOption<bool>("enableOnLaunch", true);
 
+        // Handle effects toggle
         if (isKeyPressed(keySymbol))
         {
             if (!pressed)
@@ -561,6 +580,28 @@ namespace vkBasalt
         {
             pressed = false;
         }
+        
+        // Handle menu toggle
+        if (isKeyPressed(menuKeySymbol))
+        {
+            if (!menuPressed)
+            {
+                for (unsigned int i = 0; i < pPresentInfo->swapchainCount; i++)
+                {
+                    VkSwapchainKHR swapchain = pPresentInfo->pSwapchains[i];
+                    auto imguiIt = imguiManagerMap.find(swapchain);
+                    if (imguiIt != imguiManagerMap.end())
+                    {
+                        imguiIt->second->toggleVisibility();
+                    }
+                }
+                menuPressed = true;
+            }
+        }
+        else
+        {
+            menuPressed = false;
+        }
 
         LogicalDevice* pLogicalDevice = deviceMap[GetKey(queue)].get();
 
@@ -569,33 +610,73 @@ namespace vkBasalt
 
         std::vector<VkPipelineStageFlags> waitStages(pPresentInfo->waitSemaphoreCount, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-        for (unsigned int i = 0; i < (*pPresentInfo).swapchainCount; i++)
+        for (unsigned int i = 0; i < pPresentInfo->swapchainCount; i++)
         {
-            uint32_t          index             = (*pPresentInfo).pImageIndices[i];
-            VkSwapchainKHR    swapchain         = (*pPresentInfo).pSwapchains[i];
+            uint32_t          index             = pPresentInfo->pImageIndices[i];
+            VkSwapchainKHR    swapchain         = pPresentInfo->pSwapchains[i];
             LogicalSwapchain* pLogicalSwapchain = swapchainMap[swapchain].get();
+            auto imguiIt = imguiManagerMap.find(swapchain);
+
+            // Check for runtime effect updates from ImGui
+            if (imguiIt != imguiManagerMap.end() && imguiIt->second->isVisible())
+            {
+                // Update effects based on ImGui configuration
+                imguiIt->second->update(pLogicalSwapchain);
+                
+                // Check if effects need to be recreated based on runtime changes
+                // This would need to be implemented based on the ImGui manager's state
+                // For now, just update existing effects
+            }
 
             for (auto& effect : pLogicalSwapchain->effects)
             {
                 effect->updateEffect();
             }
 
-            VkSubmitInfo submitInfo;
+            // Begin recording command buffer for this frame
+            VkCommandBuffer cmdBuffer = presentEffect ? pLogicalSwapchain->commandBuffersEffect[index] : pLogicalSwapchain->commandBuffersNoEffect[index];
+            
+            // Reset and begin the command buffer
+            VkCommandBufferBeginInfo beginInfo = {};
+            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            
+            pLogicalDevice->vkd.BeginCommandBuffer(cmdBuffer, &beginInfo);
+            
+            // Apply effects
+            if (presentEffect)
+            {
+                for (size_t j = 0; j < pLogicalSwapchain->effects.size(); j++)
+                {
+                    pLogicalSwapchain->effects[j]->applyEffect(index, cmdBuffer);
+                }
+            }
+            else
+            {
+                pLogicalSwapchain->defaultTransfer->applyEffect(index, cmdBuffer);
+            }
+            
+            // Render ImGui if visible
+            if (imguiIt != imguiManagerMap.end() && imguiIt->second->isVisible())
+            {
+                imguiIt->second->render(cmdBuffer, index);
+            }
+            
+            pLogicalDevice->vkd.EndCommandBuffer(cmdBuffer);
+            
+            VkSubmitInfo submitInfo = {};
             submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submitInfo.pNext              = nullptr;
             submitInfo.waitSemaphoreCount = i == 0 ? pPresentInfo->waitSemaphoreCount : 0;
             submitInfo.pWaitSemaphores    = i == 0 ? pPresentInfo->pWaitSemaphores : nullptr;
             submitInfo.pWaitDstStageMask  = i == 0 ? waitStages.data() : nullptr;
             submitInfo.commandBufferCount = 1;
-            submitInfo.pCommandBuffers =
-                presentEffect ? &(pLogicalSwapchain->commandBuffersEffect[index]) : &(pLogicalSwapchain->commandBuffersNoEffect[index]);
+            submitInfo.pCommandBuffers    = &cmdBuffer;
             submitInfo.signalSemaphoreCount = 1;
             submitInfo.pSignalSemaphores    = &(pLogicalSwapchain->semaphores[index]);
 
             presentSemaphores.push_back(pLogicalSwapchain->semaphores[index]);
 
             VkResult vr = pLogicalDevice->vkd.QueueSubmit(pLogicalDevice->queue, 1, &submitInfo, VK_NULL_HANDLE);
-
             if (vr != VK_SUCCESS)
             {
                 return vr;
@@ -618,6 +699,15 @@ namespace vkBasalt
         // we need to delete the infos of the oldswapchain
 
         Logger::trace("vkDestroySwapchainKHR " + convertToString(swapchain));
+        
+        // Destroy ImGui manager for this swapchain if it exists
+        auto imguiIt = imguiManagerMap.find(swapchain);
+        if (imguiIt != imguiManagerMap.end())
+        {
+            imguiIt->second->destroy();
+            imguiManagerMap.erase(imguiIt);
+        }
+        
         swapchainMap[swapchain]->destroy();
         swapchainMap.erase(swapchain);
         LogicalDevice* pLogicalDevice = deviceMap[GetKey(device)].get();

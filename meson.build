@@ -2,6 +2,9 @@ project('vkBasalt', ['c', 'cpp'], default_options: ['c_std=c11', 'cpp_std=c++2a'
 
 cpp = meson.get_compiler('cpp')
 
+# Check for required dependencies
+vulkan_dep = dependency('vulkan', required: true)
+
 vkBasalt_include_path = ''
 
 lib_dir = get_option('libdir')
@@ -14,6 +17,8 @@ endif
 
 if get_option('with_so')
     subdir('src')
+    # Add dependency for ImGui (you may need to customize this based on your ImGui setup)
+    # imgui_dep = dependency('imgui', fallback: ['imgui', 'imgui_dep'], required: false)
 endif
 
 if get_option('with_json')

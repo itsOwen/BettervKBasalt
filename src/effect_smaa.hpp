@@ -28,6 +28,12 @@ namespace vkBasalt
                    Config*              pConfig);
         void applyEffect(uint32_t imageIndex, VkCommandBuffer commandBuffer) override;
         ~SmaaEffect();
+        
+        // Implement Effect interface
+        std::string getName() const override { return "smaa"; }
+        bool updateConfig(Config* pConfig) override;
+        std::vector<std::pair<std::string, std::string>> getOptions() const override;
+        bool setOption(const std::string& optionName, const std::string& value) override;
 
     private:
         LogicalDevice*               pLogicalDevice;

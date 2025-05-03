@@ -1,14 +1,22 @@
-# vkBasalt
-vkBasalt is a Vulkan post processing layer to enhance the visual graphics of games.
+# BettervkBasalt (Under developement Not ready)
+BettervkBasalt is a fork of vkBasalt is a Vulkan post processing layer to enhance the visual graphics of games, now with a full ImGui-based runtime configuration interface similar to ReShade.
 
-Currently, the build in effects are:
-- Contrast Adaptive Sharpening
-- Denoised Luma Sharpening
-- Fast Approximate Anti-Aliasing
-- Enhanced Subpixel Morphological Anti-Aliasing
-- 3D color LookUp Table
+## Features
 
-It is also possible to use Reshade Fx shaders.
+### Built-in Effects
+- Contrast Adaptive Sharpening (CAS)
+- Denoised Luma Sharpening (DLS)
+- Fast Approximate Anti-Aliasing (FXAA)
+- Enhanced Subpixel Morphological Anti-Aliasing (SMAA)
+- 3D color LookUp Table (LUT)
+- ReShade FX shader support
+
+### New: Runtime Configuration with ImGui
+- **Real-time effect management**: Add, remove, and reorder effects without restarting
+- **Live parameter adjustment**: Modify effect settings with immediate visual feedback
+- **Preset system**: Save and load effect configurations
+- **User-friendly interface**: Press Insert key to toggle the configuration menu
+- **Similar to ReShade**: Familiar interface for ReShade users
 
 ## Disclaimer
 This is one of my first projects ever, so expect it to have bugs. Use it at your own risk.
@@ -17,11 +25,17 @@ This is one of my first projects ever, so expect it to have bugs. Use it at your
 
 ### Dependencies
 Before building, you will need:
-- GCC >= 9
+- GCC >= 9 (with C++17 support)
 - X11 development files
 - glslang
 - SPIR-V Headers
 - Vulkan Headers
+- meson build system
+- ninja build tool
+
+### Additional Dependencies for ImGui Support
+- Dear ImGui (automatically downloaded by setup script)
+- C++17 filesystem support
 
 ### Building
 
@@ -32,6 +46,10 @@ In general, prefer using distro provided packages.
 ```
 git clone https://github.com/DadSchoorse/vkBasalt.git
 cd vkBasalt
+
+# Set up ImGui (required for the new UI)
+chmod +x setup_imgui.sh
+./setup_imgui.sh
 ```
 
 #### 64bit
@@ -57,12 +75,22 @@ ninja -C builddir.32 install
 [Void Linux](https://github.com/void-linux/void-packages/blob/master/srcpkgs/vkBasalt/template) `sudo xbps-install vkBasalt`
 
 ## Usage
-Enable the layer with the environment variable.
 
-### Standard
-When using the terminal or an application (.desktop) file, execute:
-```ini
+### Quick Start
+1. Enable vkBasalt: `ENABLE_VKBASALT=1 yourgame`
+2. Press **Insert** key in-game to open the configuration menu
+3. Use the menu to add/remove effects and adjust settings in real-time
+4. Save your configuration as a preset for future use
+
+### Environment Variables
+Basic usage with environment variable:
+```bash
 ENABLE_VKBASALT=1 yourgame
+```
+
+With debug output:
+```bash
+VKBASALT_LOG_LEVEL=debug ENABLE_VKBASALT=1 yourgame
 ```
 
 ### Lutris
@@ -77,9 +105,19 @@ With Steam, edit your launch options and add:
 ENABLE_VKBASALT=1 %command% 
 ```
 
-## Configure
+## Configuration
 
-Settings like the CAS sharpening strength can be changed in the config file.
+### Runtime Configuration (New!)
+With the ImGui integration, you can now configure vkBasalt in real-time:
+1. Press **Insert** key to open the menu
+2. Navigate through the tabs:
+   - **Effects**: Add, remove, reorder, and configure effects
+   - **General Settings**: Configure global options
+   - **Presets**: Save and load effect configurations
+3. Changes are applied immediately
+
+### Static Configuration
+Traditional configuration files are still supported and will be loaded at startup.
 The config file will be searched for in the following locations:
 * a file set with the environment variable`VKBASALT_CONFIG_FILE=/path/to/vkBasalt.conf`
 * `vkBasalt.conf` in the working directory of the game
@@ -89,7 +127,11 @@ The config file will be searched for in the following locations:
 * `/etc/vkBasalt/vkBasalt.conf`
 * `/usr/share/vkBasalt/vkBasalt.conf`
 
-If you want to make changes for one game only, you can create a file named `vkBasalt.conf` in the working directory of the game and change the values there.
+### Preset System
+Presets are saved in `~/.config/vkBasalt/presets/` and can be:
+- Created through the UI
+- Shared between users
+- Loaded per-game or globally
 
 #### Reshade Fx shaders
 
@@ -104,9 +146,16 @@ reshadeTexturePath = /home/user/reshade-shaders/Textures
 reshadeIncludePath = /home/user/reshade-shaders/Shaders
 ```
 
-#### Ingame Input
+### Keyboard Shortcuts
 
-The [HOME key](https://en.wikipedia.org/wiki/Home_key) can be used to disable and re-enable the applied effects, the key can also be changed in the config file. This is based on X11 so it won't work on pure wayland. It **should** however at least not crash without X11.
+| Key | Function |
+|-----|----------|
+| Insert | Toggle configuration menu |
+| Home | Toggle effects on/off |
+
+Both keys can be customized in the configuration menu or config file.
+
+**Note**: Keyboard input is based on X11 and won't work on pure Wayland. It should not crash without X11.
 
 
 #### Debug Output
@@ -119,20 +168,43 @@ By default the logger outputs to stderr, a file as output location can be set wi
 ## FAQ
 
 #### Why is it called vkBasalt?
-It's a joke: vulkan post processing &#8594; after vulcan &#8594; basalt
-#### Does vkBasalt work with dxvk and vkd3d?
-Yes.
+It's a joke: vulkan post processing → after vulcan → basalt
+
+#### Does vkBasalt work with DXVK and VKD3D?
+Yes, vkBasalt works with both DXVK (DirectX 9/10/11 to Vulkan) and VKD3D (DirectX 12 to Vulkan).
+
 #### Will vkBasalt get me banned?
 Maybe. To my knowledge this hasn't happened yet but don't blame me if your frog dies.
-#### Will there be a openGl version?
-No. I don't know anything about openGl and I don't want to either. Also openGl has no layer system like vulkan.
-#### Will there be a GUI in the future?
-Maybe, but not soon.
-#### So is vkBasalt just a reshade port for linux?
-Not really, most of the code was written from scratch. vkBasalt directly uses reshade source code for the shader compiler (thanks [@crosire](https://github.com/crosire)), but that's about it.
+
+#### Will there be an OpenGL version?
+No. OpenGL has no layer system like Vulkan.
+
+#### Does vkBasalt have a GUI now?
+Yes! Press Insert key in-game to access the full configuration interface.
+
+#### How does vkBasalt compare to ReShade?
+vkBasalt now offers a similar experience to ReShade with:
+- Runtime effect configuration
+- Live parameter adjustment
+- Preset system
+- ReShade FX shader support
+
+However, vkBasalt is Vulkan-specific and may have different performance characteristics.
+
+#### Can I use my ReShade presets?
+ReShade FX shaders are supported, but preset formats are not directly compatible. You'll need to recreate your presets using the vkBasalt interface.
 #### Does every reshade shader work?
 No. Shaders that need multiple techniques do not work, there might still be problems with stencil and blending and depth buffer access isn't ready yet.
-#### You said that "depth buffer access isn't ready yet", what does this mean?
-There is a wip version that you can enable with `depthCapture = on`. It will lead to many problems especially on non nvidia hardware. Also the selected depth buffer isn't always the one you would want.
-#### Is there a way to change settings for reshade shaders?
-There is some support for it [#46](https://github.com/DadSchoorse/vkBasalt/pull/46). One easy way so to simply edit the shader file.
+#### Does depth buffer access work?
+There is a WIP version that you can enable with `depthCapture = on`. It may lead to problems especially on non-NVIDIA hardware. The selected depth buffer isn't always the one you would want.
+
+#### Can I change settings for ReShade shaders?
+Yes! With the new ImGui interface, you can adjust ReShade shader parameters in real-time, just like in ReShade itself.
+
+#### How do I report issues?
+Please include:
+1. Your system specifications
+2. The game you're testing
+3. vkBasalt version
+4. Debug log (`VKBASALT_LOG_LEVEL=debug`)
+5. Steps to reproduce the issue
